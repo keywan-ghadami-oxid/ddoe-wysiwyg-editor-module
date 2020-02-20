@@ -57,6 +57,7 @@ class Events
     private static $_aSetupDdMediaSQLs = array(
         "DDIMAGESIZE" => "ALTER TABLE  `ddmedia` ADD  `DDIMAGESIZE` VARCHAR( 100 ) AFTER  `DDTHUMB`; ",
         "OXSHOPID"    => "ALTER TABLE  `ddmedia` ADD `OXSHOPID` INT(10) UNSIGNED NOT NULL AFTER `OXID`; ",
+        "DDFOLDERID"    => "ALTER TABLE  `ddmedia` ADD `DDFOLDERID` CHAR(32) NOT NULL DEFAULT '' AFTER `DDIMAGESIZE`; ",
     );
 
     /**
@@ -64,7 +65,12 @@ class Events
      *
      * @var array
      */
-    private static $__aUpdateSQLs = array();
+    private static $__aUpdateSQLs = array(
+        // todo: check version for next update
+        '2.1.2' => array(
+            "ALTER TABLE  `ddmedia` ADD  `DDFOLDERID` CHAR( 32 ) NOT NULL DEFAULT '' AFTER `DDIMAGESIZE`"
+        )
+    );
 
 
     /**

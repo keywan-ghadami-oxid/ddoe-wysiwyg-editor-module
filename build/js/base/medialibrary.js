@@ -73,6 +73,8 @@
     MediaLibrary.VERSION = '1.0.0';
 
     MediaLibrary.prototype.ctrlKeyPressed = false;
+    MediaLibrary.prototype.currentPath = '';
+    MediaLibrary.prototype.currentFolderId = '';
 
     MediaLibrary.prototype._actionLink   = '';
     MediaLibrary.prototype._resourceLink = '';
@@ -117,20 +119,31 @@
             if ( file.preview )
             {
                 $( '.dd-media-details-preview-icon', $detailForm ).hide();
+                $( '.dd-media-details-dir-icon', $detailForm ).hide();
                 $( '.dd-media-details-preview', $detailForm ).attr( 'src', file.preview ).show();
             }
             else
             {
-                $( '.dd-media-details-preview-icon', $detailForm ).show();
+                if( file.filetype == "directory" )
+                {
+                    $( '.dd-media-details-dir-icon', $detailForm ).show();
+                    $( '.dd-media-details-preview-icon', $detailForm ).hide();
+                }
+                else
+                {
+                    $( '.dd-media-details-dir-icon', $detailForm ).hide();
+                    $( '.dd-media-details-preview-icon', $detailForm ).show();
+                }
                 $( '.dd-media-details-preview', $detailForm ).hide();
             }
 
-            var fileInfo = ( file.imagesize ? file.imagesize + ' | ' : '' ) + ui._formatFileSize( file.filesize );
+            var fileInfo = file.imagesize ? ( file.imagesize ? file.imagesize + ' | ' : '' ) + ui._formatFileSize( file.filesize ) : '';
 
             $( '.dd-media-details-name', $detailForm ).text( file.file );
             $( '.dd-media-details-infos', $detailForm ).text( fileInfo );
 
             $( '.dd-media-details-input-url', $detailForm ).val( file.url );
+            $( '.dd-media-details-link-url', $detailForm ).attr( 'href', file.url );
 
             $detailForm.show();
         }
@@ -150,6 +163,85 @@
         }
 
         return size + ' ' + names.pop();
+    };
+
+
+    MediaLibrary.prototype._makeItemMovable = function ( $item )
+    {
+        var actionLink   = this._actionLink;
+
+        //TODO: moving file to parent folder
+        if( $item.data( 'filetype' ) != 'directory' )
+        {
+            $( $item ).draggable(
+                {
+                    revert:  true,
+                    helper: function ( e )
+                             {
+                                 var original = $( e.target ).hasClass( "ui-draggable" ) ? $( e.target ) : $( e.target ).closest( ".ui-draggable" );
+                                 return original.clone().css( {
+                                                                  width: original.width(), // or outerWidth*
+                                                                  height: original.height() // or outerHeight*
+                                                              } );
+                             },
+                    zIndex:  100,
+                    opacity: 0.70,
+                    start: function ( e, ui )
+                             {
+                                 $( ui.helper ).addClass( "ui-draggable-helper" );
+                             }
+                }
+            );
+        }
+        else if( $item.data( 'filetype' ) == 'directory' )
+        {
+            $( $item ).droppable(
+                {
+                    hoverClass: "ui-state-hover",
+                    drop: function ( event, ui )
+                                {
+                                    if( ui.draggable.length )
+                                    {
+                                        var $item = $( ui.draggable );
+                                        var fileId = $item.data( 'id' );
+                                        var file = $item.data( 'file' );
+
+                                        var folderId = $( this ).data( 'id' );
+                                        var folder = $( this ).data( 'file' );
+                                        var thumb = $item.data( 'thumb' );
+
+                                        if( fileId && folderId )
+                                        {
+                                            $.post( actionLink + 'cl=ddoevisualcmsmedia&fnc=movefile',
+                                                    {
+                                                        sourceid: fileId,
+                                                        targetid: folderId,
+                                                        file: file,
+                                                        folder: folder,
+                                                        thumb: thumb
+                                                    },
+                                                    function ( _res )
+                                                    {
+                                                        if( _res.success )
+                                                        {
+                                                            $item.parent().remove();
+                                                        }
+                                                        else
+                                                        {
+                                                            if ( _res.msg )
+                                                            {
+                                                                ddh.alert( ddh.translate( _res.msg ) );
+                                                            }
+                                                        }
+                                                    }
+                                            );
+                                        }
+
+                                    }
+                                }
+                }
+            );
+        }
     };
 
 
@@ -218,6 +310,7 @@
                 action: function ( $dialog )
                 {
                     var $item = $( '.dd-media-item.active', $dialog );
+                    var foldername = $( '.dd-media', $dialog ).data( 'foldername' );
 
                     if ( !$item.length )
                     {
@@ -242,7 +335,7 @@
                                     files.push(
                                         {
                                             id: $( this ).data( 'id' ),
-                                            file: $( this ).data( 'file' ),
+                                            file: ( foldername ? foldername + '/' : '' ) + $( this ).data( 'file' ),
                                             url: resourceLink + $( this ).data( 'file' ),
                                             type: filetype
                                         }
@@ -277,52 +370,6 @@
                     }
 
                     $dialog.modal( 'hide' );
-                }
-            },
-            {
-                label: '<span class="text-danger">' + ddh.translate( 'DD_MEDIA_REMOVE' ) + '</span>',
-                css: [
-                    'btn btn-link pull-left disabled dd-media-remove'
-                ],
-                action: function ( $dialog )
-                {
-                    var $item = $( '.dd-media-item.active', $dialog );
-                    var $btn  = this;
-
-                    if ( !$btn.hasClass( 'disabled' ) && $item.length )
-                    {
-                        ddh.confirm( ddh.translate( 'DD_MEDIA_REMOVE_CONFIRM' ), function ()
-                            {
-                                $item.addClass( 'dd-media-item-removing' );
-
-                                var deleteIDs = [];
-
-                                $item.each( function ()
-                                    {
-                                        deleteIDs.push( $( this ).data( 'id' ) );
-                                    }
-                                );
-
-                                $.get( actionLink + 'cl=ddoewysiwygmedia_view&fnc=remove&id[]=' + deleteIDs.join( '&id[]=' ), function ()
-                                    {
-                                        $item.each( function ()
-                                            {
-                                                $( this ).parent().remove();
-                                            }
-                                        );
-
-                                        $btn.addClass( 'disabled' );
-
-                                        if ( !$( '.dd-media-list-items > .row > .dd-media-col', $dialog ).length )
-                                        {
-                                            $( '.dd-media-list', $dialog ).addClass( 'empty' );
-                                        }
-                                    }
-                                );
-                            }
-                        );
-                    }
-
                 }
             }
         ];
@@ -524,13 +571,20 @@
 
     };
 
-    MediaLibrary.prototype.refreshMedia = function ()
+    MediaLibrary.prototype.refreshMedia = function ( id )
     {
         var $media = $( '.dd-media' );
 
         if ( $media.length )
         {
             var $dialog = $media.closest( '.modal' );
+
+            var tab;
+
+            if( $( '.dd-media-tabs .tab-pane.active' ).length )
+            {
+                tab = $( '.dd-media-tabs .tab-pane.active' ).attr( 'id' );
+            }
 
             if( $dialog.length )
             {
@@ -543,13 +597,14 @@
                 $( '.dd-content', $dialog ).html( '<div class="dd-dialog-loader"></div>' );
             }
 
-            this._loadMediaContent( $dialog );
+            this._loadMediaContent( $dialog, id, tab );
         }
     };
 
     MediaLibrary.prototype.addMediaItem = function ( id, file, filetype, filesize, thumb, imagesize )
     {
         var resourceLink = this._resourceLink;
+        var ui           = this;
         var $item        = $( '.dd-media-list-items .dd-media-dz-helper > div' ).clone();
 
         $( '.dd-media-item', $item ).data(
@@ -565,29 +620,55 @@
         if ( !thumb || thumb === undefined )
         {
             $( '.dd-media-thumb', $item ).hide();
-            $( '.dd-media-icon', $item ).show();
+            $( '.dd-media-thumb', $item ).hide();
+            if( filetype == 'directory' )
+            {
+                $( '.dd-media-icon-file', $item ).hide();
+                $( '.dd-media-icon-folder', $item ).show();
+                $( '.dd-media-item-label span', $item ).text( file );
+            }
+            else
+            {
+                $( '.dd-media-icon-file', $item ).show();
+                $( '.dd-media-icon-folder', $item ).hide();
+            }
             $( '.dd-media-item-label', $item ).show();
+            $( '.dd-media-item', $item ).addClass( 'no-thumb' );
         }
         else
         {
             $( '.dd-media-thumb', $item ).attr( 'src', resourceLink + 'thumbs/' + thumb );
+            $( '.dd-media-item', $item ).removeClass( 'no-thumb' );
         }
 
         $( '.dd-media-list-items > .row' ).append( $item );
 
+        //make added item draggable or droppable for moving images to folder by drag & drop
+        ui._makeItemMovable( $( '.dd-media-item', $item ) );
+
     };
 
-    MediaLibrary.prototype._loadMediaContent = function ( $dialog )
+    MediaLibrary.prototype._loadMediaContent = function ( $dialog, folderId, tab )
     {
         var actionLink   = this._actionLink;
         var resourceLink = this._resourceLink;
         var ui           = this;
         var mediaOptions = $dialog.data( 'media-options' );
+        var actionLinkParam = '';
 
-        $.get( actionLink + 'cl=ddoewysiwygmedia_view', function ( html )
+        // if( $( '.dd-media-tabs .tab-pane.active' ).length )
+        if( tab !== undefined && tab )
+        {
+            actionLinkParam += '&tab=' + tab;
+        }
+
+        if( folderId !== undefined && folderId )
+        {
+            actionLinkParam += '&folderid=' + folderId;
+        }
+
+        $.get( actionLink + 'cl=ddoewysiwygmedia_view' + actionLinkParam, function ( html )
             {
-                $( '.dd-media-remove', $dialog ).addClass( 'disabled' );
-
                 if( $dialog.is( '.dd-media-wrapper' ) )
                 {
                     $( '.dd-content', $dialog ).html( html );
@@ -597,15 +678,78 @@
                     $( '.modal-body', $dialog ).html( html );
                 }
 
+                ui.currentFolderId = $( '.dd-media', $dialog ).data( 'folderid' );
+                resourceLink = $( '.dd-media', $dialog ).data( 'medialink' );
+
+                ui.currentPath = resourceLink.substr( resourceLink.indexOf( 'out/pictures/' ) + 'out/pictures/'.length );
+
+                $( '.dd-media-item[data-id]', $dialog ).each(
+                    function()
+                    {
+                        ui._makeItemMovable( $( this ) );
+                    }
+                );
+
+                $( '.dd-media-remove-action, .dd-media-move-action, .dd-media-rename-action', $dialog ).prop( 'disabled', true );
+
+                $( '.dd-media-folder-action', $dialog ).on( 'click',
+                                                            function()
+                                                            {
+                                                                ddh.prompt(
+                                                                    ddh.translate( 'DD_MEDIA_ADD_FOLDER' ),
+                                                                    function( val )
+                                                                    {
+                                                                        $.post( actionLink + 'cl=ddoevisualcmsmedia&fnc=addFolder', { name: val, path: ui.currentPath },
+                                                                                function( _res )
+                                                                                {
+                                                                                    ui.addMediaItem( _res.id, _res.file, _res.filetype, _res.filesize, null, _res.imagesize );
+                                                                                    $( '.dd-media-list', $dialog ).removeClass( 'empty' );
+                                                                                    $( '.dd-media-file-count', $dialog ).text( parseInt( $( '.dd-media-file-count', $dialog ).text() ) + 1 );
+                                                                                }
+                                                                        );
+                                                                    }
+                                                                );
+                                                            }
+                );
+
+                // if folder id is given then we are in a folder
+                if( folderId )
+                {
+                    $( '.dd-media-folder-action' ).hide();
+                    $( '.dd-media-folder-up-action', $dialog ).on(
+                        'click',
+                        function ()
+                        {
+                            ui.refreshMedia();
+                        }
+                    );
+                }
+                else // otherwise we are in root folder
+                {
+                    $( '.dd-media-folder-up-action', $dialog ).prop( 'disabled', true );
+                }
+
                 var $detailForm = $( '.dd-media-details-form', $dialog );
 
                 $( '.dd-media-details-delete-action', $dialog ).on( 'click', function()
                     {
-                        var $item = $( '.dd-media-item.active', $dialog ).first();
+                        var $item = $( '.dd-media-item.active', $dialog );
+                        var $btn  = this;
 
-                        if ( $item.length )
+                        if ( !$( $btn ).prop( 'disabled' ) && $item.length )
                         {
-                            ddh.confirm( ddh.translate( 'DD_MEDIA_REMOVE_CONFIRM' ), function ()
+                            var sConfirmMsg = 'DD_MEDIA_REMOVE_CONFIRM';
+
+                            if( $item.length > 1 )
+                            {
+                                sConfirmMsg = 'DD_MEDIA_REMOVE_MANY_CONFIRM';
+                            }
+                            else if( $item.data( 'filetype' ) == 'directory' )
+                            {
+                                sConfirmMsg = 'DD_MEDIA_REMOVE_FOLDER_CONFIRM';
+                            }
+
+                            ddh.confirm( ddh.translate( sConfirmMsg ), function ()
                                 {
                                     $item.addClass( 'dd-media-item-removing' );
 
@@ -617,13 +761,17 @@
                                         }
                                     );
 
-                                    $.get( actionLink + 'cl=ddoewysiwygmedia_view&fnc=remove&id[]=' + deleteIDs.join( '&id[]=' ), function ()
+                                    $.get( actionLink + 'cl=ddoewysiwygmedia_view&fnc=remove&id[]=' + deleteIDs.join( '&id[]=' ) + '&folderid=' + folderId, function ()
                                         {
+                                            $( '.dd-media-file-count', $dialog ).text( parseInt( $( '.dd-media-file-count', $dialog ).text() ) - $item.length );
+
                                             $item.each( function ()
                                                 {
                                                     $( this ).parent().remove();
                                                 }
                                             );
+
+                                            $( $btn ).prop( 'disabled', true );
 
                                             if ( !$( '.dd-media-list-items > .row > .dd-media-col', $dialog ).length )
                                             {
@@ -636,6 +784,62 @@
                                 }
                             );
                         }
+                    }
+                );
+
+                $( '.dd-media-rename-action', $dialog ).on(
+                    'click',
+                    function()
+                    {
+                        var $item = $( '.dd-media-item.active', $dialog );
+                        var $btn  = this;
+
+                        if ( !$( $btn ).prop( 'disabled' ) && $item.length == 1 )
+                        {
+                            ddh.prompt(
+                                ddh.translate( 'DD_MEDIA_RENAME_FILE_FOLDER' ),
+                                function( val )
+                                {
+                                    var $_item = $( '.dd-media-item.active', $dialog );
+
+                                    if( val && val != $_item.data( 'file' ) )
+                                    {
+                                        $.post(
+                                            actionLink
+                                            + 'cl=ddoevisualcmsmedia&fnc=rename', {
+                                                oldname: $_item.data( 'file' ),
+                                                newname: val, id: $_item.data( 'id' ),
+                                                filetype: $_item.data( 'filetype' ),
+                                                path: ui.currentPath
+                                            },
+                                            function( _res )
+                                            {
+                                                if( _res.success && _res.name )
+                                                {
+                                                    $_item.data( 'file', _res.name );
+                                                    $_item.data( 'id', _res.id );
+                                                    $_item.data( 'url', resourceLink + _res.name );
+                                                    $( '.dd-media-item-label span', $_item ).text( _res.name );
+                                                    ui._loadItemDetails( $_item.data(), $dialog );
+                                                }
+                                                else
+                                                {
+                                                    if ( _res.msg )
+                                                    {
+                                                        ddh.alert( ddh.translate( _res.msg ) );
+                                                    }
+                                                }
+                                            }
+                                        );
+                                    }
+
+                                },
+                                undefined,
+                                $item.data( 'file' )
+                            );
+
+                        }
+
                     }
                 );
 
@@ -685,28 +889,46 @@
                             ui._loadItemDetails( itemData, $dialog );
                         }
 
-                        if ( !$( '.dd-media-list-items > .row > .dd-media-col > .active', $dialog ).length )
+                        var $activeItems = $( '.dd-media-list-items > .row > .dd-media-col > .active', $dialog );
+
+                        if ( !$activeItems.length )
                         {
                             ui._loadItemDetails( false, $dialog );
 
-                            $( '.dd-media-remove' ).addClass( 'disabled' );
+                            $( '.dd-media-remove-action, .dd-media-move-action, .dd-media-rename-action' ).prop( 'disabled', true );
                         }
                         else
                         {
-                            $( '.dd-media-remove' ).removeClass( 'disabled' );
+                            if( $activeItems.length > 1 )
+                            {
+                                $( '.dd-media-remove-action, .dd-media-move-action' ).prop( 'disabled', false );
+                                $( '.dd-media-rename-action' ).prop( 'disabled', true );
+                            }
+                            else
+                            {
+                                $( '.dd-media-remove-action, .dd-media-move-action, .dd-media-rename-action' ).prop( 'disabled', false );
+                            }
                         }
                     }
                 ).on( 'dblclick', '.dd-media-item', function ( e )
                     {
                         e.preventDefault();
 
-                        $( '.dd-media-submit', $dialog ).trigger( 'click' );
+                        if ( $( this ).data( 'filetype' ) == 'directory' )
+                        {
+                            //open folder
+                            ui.refreshMedia( $( this ).data( 'id' ) );
+                        }
+                        else
+                        {
+                            $( '.dd-media-submit', $dialog ).trigger( 'click' );
+                        }
                     }
                 );
 
                 $( '.dd-media', $dialog ).dropzone(
                     {
-                        url: actionLink + 'cl=ddoewysiwygmedia_view&fnc=upload',
+                        url: actionLink + 'cl=ddoewysiwygmedia_view&fnc=upload&folderid=' + $( '.dd-media', $dialog ).data( 'folderid' ),
                         parallelUploads: 10,
 
                         previewsContainer: $( '.dd-media-list-items > .row', $dialog )[ 0 ],
@@ -752,9 +974,12 @@
                                             'file': response.file,
                                             'filetype': response.filetype,
                                             'filesize': response.filesize,
-                                            'imagesize': ( response.imagesize || null )
+                                            'imagesize': ( response.imagesize || null ),
+                                            'thumb': response.thumb
                                         }
                                     ).trigger( 'click' );
+
+                                    ui._makeItemMovable( $( '.dd-media-item', file.previewElement ) );
 
                                     $( '.dd-media-file-count', $dialog ).text( parseInt( $( '.dd-media-file-count', $dialog ).text() ) + 1 );
                                 }
@@ -765,8 +990,10 @@
                                     if ( !file.type.match( /image\.*/ ) )
                                     {
                                         $( '.dd-media-thumb', file.previewElement ).hide();
-                                        $( '.dd-media-icon', file.previewElement ).show();
+                                        $( '.dd-media-icon-file', file.previewElement ).show();
+                                        $( '.dd-media-icon-folder', file.previewElement ).hide();
                                         $( '.dd-media-item-label', file.previewElement ).show();
+                                        $( '.dd-media-item', file.previewElement ).addClass( 'no-thumb' );
                                     }
                                 }
                             );

@@ -22,6 +22,7 @@
 
 namespace OxidEsales\WysiwygModule\Application\Controller\Admin;
 
+use OxidEsales\Eshop\Core\Registry;
 use OxidEsales\WysiwygModule\Application\Model\Media;
 
 use OxidEsales\Eshop\Application\Controller\Admin\AdminDetailsController;
@@ -48,6 +49,7 @@ class WysiwygMedia extends AdminDetailsController
     protected $_sUploadDir = '';
     protected $_sThumbDir = '';
     protected $_iDefaultThumbnailSize = 0;
+    protected $_sFolderId = '';
 
 
     /**
@@ -59,6 +61,13 @@ class WysiwygMedia extends AdminDetailsController
 
         if ( $this->_oMedia === null )
         {
+            if( ( $sId = $this->getConfig()->getRequestParameter( 'folderid' ) ) )
+            {
+                $this->_sFolderId = $sId;
+
+                //$this->_oMedia->setFolderNameForFolderId( $sId );
+            }
+
             $oModule = oxNew(\OxidEsales\Eshop\Core\Module\Module::class);
 
             if ( class_exists( '\\OxidEsales\\VisualCmsModule\\Application\\Model\\Media' ) && $oModule->load( 'ddoevisualcms' ) && $oModule->isActive() )
@@ -69,10 +78,11 @@ class WysiwygMedia extends AdminDetailsController
             {
                 $this->_oMedia = oxNew( Media::class );
             }
+            $this->_oMedia->init( null, false, $this->_sFolderId  );
         }
 
         $this->_sUploadDir = $this->_oMedia->getMediaPath();
-        $this->_sThumbDir = $this->_oMedia->getMediaPath();
+        $this->_sThumbDir  = $this->_oMedia->getThumbnailPath();
         $this->_iDefaultThumbnailSize = $this->_oMedia->getDefaultThumbSize();
     }
 
@@ -90,6 +100,9 @@ class WysiwygMedia extends AdminDetailsController
         $this->_aViewData['iFileCount'] = $this->_getFileCount($iShopId);
         $this->_aViewData['sResourceUrl'] = $this->_oMedia->getMediaUrl();
         $this->_aViewData['sThumbsUrl'] = $this->_oMedia->getThumbnailUrl();
+        $this->_aViewData[ 'sFoldername' ]  = $this->_oMedia->getFolderName();
+        $this->_aViewData[ 'sFolderId' ]    = $this->_sFolderId;
+        $this->_aViewData[ 'sTab' ]         = $this->getConfig()->getRequestParameter( 'tab' );
 
         return parent::render();
     }
@@ -102,9 +115,14 @@ class WysiwygMedia extends AdminDetailsController
      */
     protected function _getFiles($iStart = 0, $iShopId = null)
     {
-        $sSelect = "SELECT * FROM `ddmedia` WHERE 1 " . ($iShopId != null ? "AND `OXSHOPID` = '" . $iShopId . "' " : "") . "ORDER BY `OXTIMESTAMP` DESC LIMIT " . $iStart . ", 18 ";
+        $oDb = DatabaseProvider::getDb( DatabaseProvider::FETCH_MODE_ASSOC );
 
-        return DatabaseProvider::getDb(DatabaseProvider::FETCH_MODE_ASSOC)->getAll($sSelect);
+        $sSelect = "SELECT * FROM `ddmedia` WHERE 1 " .
+                   ( $iShopId != null ? "AND `OXSHOPID` = " . $oDb->quote( $iShopId ) . " " : "" ) .
+                   "AND `DDFOLDERID` = " . $oDb->quote( $this->_sFolderId ) . " " .
+                   "ORDER BY `OXTIMESTAMP` DESC LIMIT " . $iStart . ", 18 ";
+
+        return $oDb->getAll($sSelect);
     }
 
     /**
@@ -114,9 +132,13 @@ class WysiwygMedia extends AdminDetailsController
      */
     protected function _getFileCount($iShopId = null)
     {
-        $sSelect = "SELECT COUNT(*) AS 'count' FROM `ddmedia` WHERE 1 " . ($iShopId != null ? "AND `OXSHOPID` = '" . $iShopId . "' " : "");
+        $oDb = DatabaseProvider::getDb( DatabaseProvider::FETCH_MODE_ASSOC );
 
-        return DatabaseProvider::getDb(DatabaseProvider::FETCH_MODE_ASSOC)->getOne($sSelect);
+        $sSelect = "SELECT COUNT(*) AS 'count' FROM `ddmedia` WHERE 1 " .
+                   ( $iShopId != null ? "AND `OXSHOPID` = " . $oDb->quote( $iShopId ) . " " : "" ) .
+                   "AND `DDFOLDERID` = " . $oDb->quote( $this->_sFolderId );
+
+        return $oDb->getOne($sSelect);
     }
 
     /**
@@ -142,7 +164,7 @@ class WysiwygMedia extends AdminDetailsController
 
                 $aFile = $this->_oMedia->uploadeMedia($sSourcePath, $sDestPath, true);
 
-                $sId = md5( $aFile[ 'filename' ] );
+                $sId = md5( $aFile[ 'filename' ] . $this->_sFolderId );
                 $sThumbName = $aFile[ 'thumbnail' ];
                 $sFileName = $aFile[ 'filename' ];
 
@@ -154,14 +176,27 @@ class WysiwygMedia extends AdminDetailsController
                     $sImageSize = ($aImageSize ? $aImageSize[0] . 'x' . $aImageSize[1] : '');
                 }
 
+                $oDb = DatabaseProvider::getDb();
                 $iShopId = $oConfig->getActiveShop()->getShopId();
 
                 $sInsert = "REPLACE INTO `ddmedia`
-                          ( `OXID`, `OXSHOPID`, `DDFILENAME`, `DDFILESIZE`, `DDFILETYPE`, `DDTHUMB`, `DDIMAGESIZE` )
-                        VALUES
-                          ( '" . $sId . "', '" . $iShopId . "', '" . $sFileName . "', " . $sFileSize . ", '" . $sFileType . "', '" . $sThumbName . "', '" . $sImageSize . "' );";
+                              ( `OXID`, `OXSHOPID`, `DDFILENAME`, `DDFILESIZE`, `DDFILETYPE`, `DDTHUMB`, `DDIMAGESIZE`, `DDFOLDERID` )
+                            VALUES
+                              ( ?, ?, ?, ?, ?, ?, ?, ? );";
 
-                DatabaseProvider::getDb()->execute($sInsert);
+                $oDb->execute(
+                    $sInsert,
+                    array(
+                        $sId,
+                        $iShopId,
+                        $sFileName,
+                        $sFileSize,
+                        $sFileType,
+                        $sThumbName,
+                        $sImageSize,
+                        $this->_sFolderId
+                    )
+                );
             }
 
             if ($oConfig->getRequestParameter('src') == 'fallback') {
@@ -222,6 +257,104 @@ class WysiwygMedia extends AdminDetailsController
         die($sFormHTML);
     }
 
+    public function addFolder()
+    {
+        $oConfig = $this->getConfig();
+
+        $sId = null;
+
+        if ( ( $sName = $oConfig->getRequestParameter( 'name' ) ) )
+        {
+            $sParentPath = $oConfig->getRequestParameter( 'path' ) ? $oConfig->getRequestParameter( 'path' ) : null;
+
+            $sPath = Registry::getConfig()->getPictureDir( false ) . $sParentPath;
+            $sMediaRoot = $this->_oMedia->getRootMediaPath();
+            $sParentPath = str_replace( $sMediaRoot, '', $sPath );
+
+            $this->_oMedia->createDirs();
+
+            $sName = $this->_oMedia->createCustomDir( $sName, $sParentPath );
+
+            $sDestPath = $this->_sUploadDir . ( $sParentPath ? $sParentPath . '/' : '' ) . $sName;
+
+            $oDb = DatabaseProvider::getDb();
+
+            $iShopId = $oConfig->getActiveShop()->getShopId();
+
+            $sId = md5( ( $sParentPath ? $sParentPath . '/' : '' ) . $sName );
+
+            $sInsert = "REPLACE INTO `ddmedia`
+                          ( `OXID`, `OXSHOPID`, `DDFILENAME`, `DDFILESIZE`, `DDFILETYPE`, `DDTHUMB`, `DDIMAGESIZE` )
+                        VALUES
+                          ( '" . $sId . "', '" . $iShopId . "', " . $oDb->quote( $sName ) . ", 0, " . $oDb->quote( 'directory' ) . ", '', '' );";
+
+            $oDb->execute( $sInsert );
+
+            header( 'Content-Type: application/json' );
+            die( json_encode( array( 'success' => true, 'id' => $sId, 'file' => $sName, 'filepath' => $sDestPath, 'filetype' => 'directory', 'filesize' => 0, 'imagesize' => '' ) ) );
+        }
+        else
+        {
+            header( 'Content-Type: application/json' );
+            die( json_encode( array( 'success' => false ) ) );
+        }
+
+    }
+
+    public function rename()
+    {
+        $blReturn = false;
+        $sMsg = '';
+
+        $oConfig = $this->getConfig();
+
+        $sNewId = $sId = $oConfig->getRequestParameter( 'id' );
+        $sOldName = $oConfig->getRequestParameter( 'oldname' );
+        $sNewName = $oConfig->getRequestParameter( 'newname' );
+        $sFiletype = $oConfig->getRequestParameter( 'filetype' );
+
+        if( $sId && $sOldName && $sNewName )
+        {
+            $sParentPath = $oConfig->getRequestParameter( 'path' ) ? $oConfig->getRequestParameter( 'path' ) : null;
+
+            $oDb = DatabaseProvider::getDb();
+
+            //check if image is in use before moving it to another place
+            $sPath = Registry::getConfig()->getPictureDir( false ) . $sParentPath;
+            $sMediaRoot = $this->_oMedia->getRootMediaPath();
+            $sPath = str_replace( $sMediaRoot, '', $sPath );
+            $blFileInUse = $this->_checkIfFileIsInUse( $sPath . $sOldName );
+
+            if( !$blFileInUse && ( $sNewName = $this->_oMedia->rename( $sOldName, $sNewName, $sParentPath, $sFiletype ) ) )
+            {
+                $iShopId = $oConfig->getActiveShop()->getShopId();
+
+                $sNewId = md5(( $sParentPath ? $sParentPath . '/' : '' ) . $sNewName );
+
+                $sUpdate = "UPDATE `ddmedia`
+                              SET `DDFILENAME` = '$sNewName', `OXID` = '$sNewId' 
+                            WHERE `OXID` = '$sId' AND `OXSHOPID` = '$iShopId';";
+
+                $oDb->execute( $sUpdate );
+
+                $sUpdate = "UPDATE `ddmedia`
+                              SET `DDFOLDERID` = '$sNewId' 
+                            WHERE `DDFOLDERID` = '$sId' AND `OXSHOPID` = '$iShopId';";
+
+                $oDb->execute( $sUpdate );
+                $blReturn = true;
+            }
+
+            if( $blFileInUse )
+            {
+                $sMsg = 'DD_MEDIA_RENAME_FILE_ERR';
+            }
+        }
+
+        header( 'Content-Type: application/json' );
+        die( json_encode( array( 'success' => $blReturn, 'msg' => $sMsg, 'name' => $sNewName, 'id' => $sNewId ) ) );
+    }
+
     /**
      * Remove file
      */
@@ -232,14 +365,33 @@ class WysiwygMedia extends AdminDetailsController
         if ($aIDs = $oConfig->getRequestParameter('id')) {
             $oDb = DatabaseProvider::getDb(DatabaseProvider::FETCH_MODE_ASSOC);
 
-            $sSelect = "SELECT `OXID`, `DDFILENAME`, `DDTHUMB` FROM `ddmedia` WHERE `OXID` IN('" . implode("','", $aIDs) . "'); ";
+            $sSelect = "SELECT `OXID`, `DDFILENAME`, `DDTHUMB`, `DDFILETYPE`, `DDFOLDERID` " .
+                       "FROM `ddmedia` " .
+                       "WHERE `OXID` IN(" . implode( ",", $oDb->quoteArray( $aIDs ) ) . ") " .
+                       " OR `DDFOLDERID` IN(" . implode( ",", $oDb->quoteArray( $aIDs ) ) . ") " .
+                       "ORDER BY `DDFOLDERID` ASC";
             $aData = $oDb->getAll($sSelect);
 
-            foreach ($aData as $aRow) {
-                @unlink($this->_sUploadDir . $aRow['DDFILENAME']);
+            $aFolders = array();
+            foreach( $aData as $sKey => $aRow )
+            {
+                if ( $aRow[ 'DDFILETYPE' ] == 'directory' )
+                {
+                    $aFolders[ $aRow[ 'OXID' ] ] = $aRow[ 'DDFILENAME' ];
+                    unset( $aData[ $sKey ] );
+                }
+            }
+
+            foreach ($aData as $aRow)
+            {
+                $sFolderPath = $this->_sUploadDir . ( $aRow[ 'DDFOLDERID' ] ? $aFolders[ $aRow[ 'DDFOLDERID' ] ] . '/' : '' );
+                $sThumbPath = ( $aRow[ 'DDFOLDERID' ] ? $sFolderPath . 'thumbs/' : $this->_sThumbDir );
+
+                @unlink( $sFolderPath . $aRow[ 'DDFILENAME' ] );
 
                 if ($aRow['DDTHUMB']) {
-                    foreach (glob($this->_sThumbDir . str_replace('thumb_' . $this->_iDefaultThumbnailSize . '.jpg', '*', $aRow['DDTHUMB'])) as $sThumb) {
+                    foreach( glob( $sThumbPath . str_replace( 'thumb_' . $this->_iDefaultThumbnailSize . '.jpg', '*', $aRow[ 'DDTHUMB' ] ) ) as $sThumb )
+                    {
                         @unlink($sThumb);
                     }
                 }
@@ -247,9 +399,61 @@ class WysiwygMedia extends AdminDetailsController
                 $sDelete = "DELETE FROM `ddmedia` WHERE `OXID` = '" . $aRow['OXID'] . "'; ";
                 $oDb->execute($sDelete);
             }
+
+            // remove folder
+            foreach ( $aFolders as $sOxid => $sFolderName )
+            {
+                @rmdir( $this->_sUploadDir . $sFolderName . '/thumbs' );
+                @rmdir( $this->_sUploadDir . $sFolderName );
+                $sDelete = "DELETE FROM `ddmedia` WHERE `OXID` = '" . $sOxid . "'; ";
+                $oDb->execute( $sDelete );
+            }
         }
 
         exit();
+    }
+
+    public function movefile()
+    {
+        $blReturn = false;
+        $sMsg = '';
+
+        $oConfig = $this->getConfig();
+
+        $sFileID = $oConfig->getRequestParameter( 'sourceid' );
+        $sFileName = $oConfig->getRequestParameter( 'file' );
+        $sFolderID = $oConfig->getRequestParameter( 'targetid' );
+        $sFolderName = $oConfig->getRequestParameter( 'folder' );
+        $sThumb = $oConfig->getRequestParameter( 'thumb' );
+
+        if( $sFileID && $sFileName && $sFolderID && $sFolderName )
+        {
+            $oDb = DatabaseProvider::getDb();
+
+            //check if image is in use before moving it to another place
+            $blFileInUse = $this->_checkIfFileIsInUse( $sFileName );
+
+            if( !$blFileInUse && $this->_oMedia->moveFile( $sFileName, $sFolderName, $sThumb ) )
+            {
+                $iShopId = $oConfig->getActiveShop()->getShopId();
+
+                $sUpdate = "UPDATE `ddmedia`
+                              SET `DDFOLDERID` = '$sFolderID'  
+                            WHERE `OXID` = '$sFileID' AND `OXSHOPID` = '$iShopId';";
+
+                $oDb->execute( $sUpdate );
+
+                $blReturn = true;
+            }
+
+            if( $blFileInUse )
+            {
+                $sMsg = 'DD_MEDIA_MOVE_FILE_ERR';
+            }
+        }
+
+        header( 'Content-Type: application/json' );
+        die( json_encode( array( 'success' => $blReturn, 'msg' => $sMsg ) ) );
     }
 
     /**
@@ -267,5 +471,57 @@ class WysiwygMedia extends AdminDetailsController
 
         header('Content-Type: application/json');
         die(json_encode(array('files' => $aFiles, 'more' => $blLoadMore)));
+    }
+
+    public function getBreadcrumb()
+    {
+        $aBreadcrumb = array();
+
+        $oPath = new \stdClass();
+        $oPath->active = ($this->_oMedia->getFolderName() ? false : true );
+        $oPath->name = 'Root';
+        $aBreadcrumb[] = $oPath;
+
+        if( $this->_oMedia->getFolderName() )
+        {
+            $oPath = new \stdClass();
+            $oPath->active = true;
+            $oPath->name = $this->_oMedia->getFolderName();
+            $aBreadcrumb[] = $oPath;
+        }
+
+        return $aBreadcrumb;
+    }
+
+    /**
+     * @param $sFileName
+     *
+     * @return mixed
+     * @throws \OxidEsales\Eshop\Core\Exception\DatabaseConnectionException
+     */
+    protected function _checkIfFileIsInUse( $sFileName )
+    {
+        $oDb = DatabaseProvider::getDb();
+
+        $sImageUrlPath = $sFileName;
+        $aLangs = \OxidEsales\Eshop\Core\Registry::getLang()->getLanguageArray();
+        $aWheres = array();
+        foreach ( $aLangs as $oLang )
+        {
+            if ( $oLang->id == 0 )
+            {
+                $aWheres[] = "`OXCONTENT` LIKE '%$sImageUrlPath%'";
+            }
+            else
+            {
+                $aWheres[] = "`OXCONTENT_{$oLang->id}` LIKE '%$sImageUrlPath%'";
+            }
+        }
+
+        $sSelect = "SELECT COUNT(*) FROM `oxcontents` WHERE " . implode( ' OR ', $aWheres );
+
+        $blFileInUse = $oDb->getOne( $sSelect );
+
+        return $blFileInUse;
     }
 }

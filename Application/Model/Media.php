@@ -22,6 +22,7 @@
 
 namespace OxidEsales\WysiwygModule\Application\Model;
 
+use OxidEsales\Eshop\Core\DatabaseProvider;
 use OxidEsales\Eshop\Core\Model\BaseModel;
 use OxidEsales\Eshop\Core\Registry;
 
@@ -35,6 +36,7 @@ class Media extends BaseModel
 
     protected $_sMediaPath = '/out/pictures/ddmedia/';
     protected $_iDefaultThumbnailSize = 185;
+    protected $_sFolderName;
     protected $_aFileExtBlacklist = [ 'php.*', 'exe', 'js', 'jsp', 'cgi', 'cmf', 'phtml', 'pht', 'phar' ]; // regex allowed
 
 
@@ -42,8 +44,24 @@ class Media extends BaseModel
      * @param null|string $sTableName
      * @param bool        $blForceAllFields
      */
-    public function init($sTableName = null, $blForceAllFields = false)
+    public function init( $sTableName = NULL, $blForceAllFields = false, $sFolderId = '' )
     {
+        if( $sFolderId )
+        {
+            $this->setFolderNameForFolderId( $sFolderId );
+        }
+    }
+
+    public function getRootMediaPath( $sFile = '' )
+    {
+        $sPath = rtrim( getShopBasePath(), '/' ) . $this->_sMediaPath;
+
+        if ( $sFile )
+        {
+            return $sPath . $sFile;
+        }
+
+        return $sPath;
     }
 
     /**
@@ -107,10 +125,11 @@ class Media extends BaseModel
             $sUrl = $oConfig->getShopUrl(false);
         }
 
-        $sUrl = rtrim($sUrl, '/') . $this->_sMediaPath;
+        $sUrl = rtrim( $sUrl, '/' ) . $this->_sMediaPath . ( $this->_sFolderName ? $this->_sFolderName . '/' : '' );
 
-        if ($sFile) {
-            return $sUrl . $sFile;
+        if ($sFile)
+        {
+            return $sUrl . ( strpos( $sFile, 'thumbs/' ) !== false ? $sFile : basename( $sFile ) );
         }
 
         return $sUrl;
@@ -121,15 +140,19 @@ class Media extends BaseModel
      *
      * @return string
      */
-    public function getMediaPath($sFile = '')
+    public function getMediaPath( $sFile = '' )
     {
-        $sPath = rtrim(getShopBasePath(), '/') . $this->_sMediaPath;
+        $this->_checkAndSetFolderName( $sFile );
 
-        if ($sFile) {
-            return $sPath . $sFile;
+        $sPath = $this->getRootMediaPath() . ( $this->_sFolderName ? $this->_sFolderName . '/' : '' );
+
+        if ( $sFile )
+        {
+            return $sPath . ( strpos( $sFile, 'thumbs/' ) !== false ? $sFile : basename( $sFile ) );
         }
 
         return $sPath;
+
     }
 
     /**
@@ -152,6 +175,7 @@ class Media extends BaseModel
         $this->createDirs();
 
         $sThumbName = '';
+        $sDestPath = $this->_checkAndGetFileName( $sDestPath );
         $sFileName = basename($sDestPath);
         $iFileCount = 0;
 
@@ -214,6 +238,79 @@ class Media extends BaseModel
         if (!is_dir($this->getThumbnailPath())) {
             mkdir($this->getThumbnailPath());
         }
+    }
+
+    public function createCustomDir( $sName, $sParentPath )
+    {
+        $this->createDirs();
+
+        $sPath = $this->getMediaPath() . ( $sParentPath ? $sParentPath . '/' : '' );
+        $sNewPath = $sPath . $sName;
+
+        $sNewPath = $this->_checkAndGetFolderName( $sNewPath, $sPath );
+
+        if( !is_dir( $sNewPath ) )
+        {
+            mkdir( $sNewPath );
+        }
+
+        return basename( $sNewPath );
+    }
+
+    public function rename( $sOldName, $sNewName, $sParentPath, $sType = 'file' )
+    {
+        if( $sParentPath )
+        {
+            // sanitize filename
+            $sNewName = $this->_sanitizeFilename( $sNewName );
+
+            $sPath = Registry::getConfig()->getPictureDir( false ) . $sParentPath;
+
+            $sOldPath = $sPath . $sOldName;
+            $sNewPath = $sPath . $sNewName;
+
+            if( $sType == 'directory' )
+            {
+                $sNewPath = $this->_checkAndGetFolderName( $sNewPath, $sPath );
+            }
+            else
+            {
+                $sNewPath = $this->_checkAndGetFileName( $sNewPath );
+            }
+
+            return rename( $sOldPath, $sNewPath ) ? basename( $sNewPath ) : $sOldName;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    public function moveFile( $sFileName, $sFolderName, $sThumb )
+    {
+        $sOldName = $this->getMediaPath() . $sFileName;
+        $sNewName = $this->getMediaPath() . $sFolderName . '/' . $sFileName;
+
+        if( ( $blReturn = rename( $sOldName, $sNewName ) ) )
+        {
+            if( $sThumb )
+            {
+                $sOldThumbPath = $this->getMediaPath() . 'thumbs/';
+                $sNewThumbPath = $this->getMediaPath() . $sFolderName . '/thumbs/';
+
+                if( !is_dir( $sNewThumbPath ) )
+                {
+                    mkdir( $sNewThumbPath );
+                }
+
+                foreach( glob( $sOldThumbPath . str_replace( 'thumb_' . $this->_iDefaultThumbnailSize . '.jpg', '*', $sThumb ) ) as $sThumbFile )
+                {
+                    rename( $sThumbFile, $sNewThumbPath . basename( $sThumbFile ) );
+                }
+            }
+        }
+
+        return $blReturn;
     }
 
     /**
@@ -371,5 +468,128 @@ class Media extends BaseModel
             }
         }
         return true;
+    }
+
+    public function setFolderNameForFolderId( $sId )
+    {
+        $iShopId = $this->getConfig()->getConfigParam( 'blMediaLibraryMultiShopCapability' ) ? $this->getConfig()->getActiveShop()->getShopId() : null;
+
+        $oDb = DatabaseProvider::getDb( DatabaseProvider::FETCH_MODE_ASSOC );
+        $sSelect = "SELECT `DDFILENAME` AS 'count' FROM `ddmedia` WHERE `OXID` = '$sId' AND `DDFILETYPE` = 'directory' " . ( $iShopId != null ? "AND `OXSHOPID` = " . $oDb->quote( $iShopId ) . " " : "" );
+        $sFolderName = $oDb->getOne( $sSelect );
+
+        if( $sFolderName )
+        {
+            $this->_sFolderName = $sFolderName;
+        }
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getFolderName()
+    {
+        return $this->_sFolderName;
+    }
+
+    /**
+     * @param $sFile
+     */
+    protected function _checkAndSetFolderName( $sFile )
+    {
+        if ( $sFile && ( $iPos = strpos( $sFile, '/' ) ) !== false && !$this->_sFolderName )
+        {
+            $sFolderName = substr( $sFile, 0, $iPos );
+            if( $sFolderName != 'thumbs' )
+            {
+                $this->_sFolderName = substr( $sFile, 0, $iPos );
+            }
+        }
+    }
+
+    /**
+     * @param $sNewPath
+     * @param $sPath
+     *
+     * @return string
+     */
+    protected function _checkAndGetFolderName( $sNewPath, $sPath )
+    {
+        while ( file_exists( $sNewPath ) )
+        {
+            $sBaseName = basename( $sNewPath );
+
+            $aBaseParts = explode( '_', $sBaseName );
+            $aBaseParts = array_reverse( $aBaseParts );
+
+            if ( strlen( $aBaseParts[ 0 ] ) && is_numeric( $aBaseParts[ 0 ] ) )
+            {
+                $iFileCount = (int) $aBaseParts[ 0 ];
+                unset( $aBaseParts[ 0 ] );
+            }
+
+            $sBaseName = implode( '_', array_reverse( $aBaseParts ) );
+
+            $sFileName = $sBaseName . '_' . ( ++$iFileCount );
+            $sNewPath = $sPath . $sFileName;
+        }
+
+        return $sNewPath;
+    }
+
+    /**
+     * @param $sDestPath
+     *
+     * @return array
+     */
+    protected function _checkAndGetFileName( $sDestPath )
+    {
+        $iFileCount = 0;
+
+        while ( file_exists( $sDestPath ) )
+        {
+            $sFileName = basename( $sDestPath );
+
+            $aFileParts = explode( '.', $sFileName );
+            $aFileParts = array_reverse( $aFileParts );
+
+            $sFileExt = $aFileParts[ 0 ];
+            unset( $aFileParts[ 0 ] );
+
+            $sBaseName = implode( '.', array_reverse( $aFileParts ) );
+
+            $aBaseParts = explode( '_', $sBaseName );
+            $aBaseParts = array_reverse( $aBaseParts );
+
+            if ( strlen( $aBaseParts[ 0 ] ) == 1 && is_numeric( $aBaseParts[ 0 ] ) )
+            {
+                $iFileCount = (int) $aBaseParts[ 0 ];
+                unset( $aBaseParts[ 0 ] );
+            }
+
+            $sBaseName = implode( '_', array_reverse( $aBaseParts ) );
+
+            $sFileName = $sBaseName . '_' . ( ++$iFileCount ) . '.' . $sFileExt;
+            $sDestPath = dirname( $sDestPath ) . '/' . $sFileName;
+        }
+
+        return $sDestPath;
+    }
+
+    /**
+     * @param $sNewName
+     *
+     * @return mixed|null|string|string[]
+     */
+    protected function _sanitizeFilename( $sNewName )
+    {
+        $iLang = \OxidEsales\Eshop\Core\Registry::getLang()->getEditLanguage();
+        if ( $aReplaceChars = \OxidEsales\Eshop\Core\Registry::getLang()->getSeoReplaceChars( $iLang ) )
+        {
+            $sNewName = str_replace( array_keys( $aReplaceChars ), array_values( $aReplaceChars ), $sNewName );
+        }
+        $sNewName = preg_replace( '/[^a-zA-Z0-9-_]+/', '-', pathinfo( $sNewName, PATHINFO_FILENAME ) ) . '.' . pathinfo( $sNewName, PATHINFO_EXTENSION );
+
+        return $sNewName;
     }
 }
