@@ -212,7 +212,7 @@
 
                                         if( fileId && folderId )
                                         {
-                                            $.post( actionLink + 'cl=ddoevisualcmsmedia&fnc=movefile',
+                                            $.post( actionLink + 'cl=ddoewysiwygmedia_view&fnc=movefile',
                                                     {
                                                         sourceid: fileId,
                                                         targetid: folderId,
@@ -699,7 +699,7 @@
                                                                     ddh.translate( 'DD_MEDIA_ADD_FOLDER' ),
                                                                     function( val )
                                                                     {
-                                                                        $.post( actionLink + 'cl=ddoevisualcmsmedia&fnc=addFolder', { name: val, path: ui.currentPath },
+                                                                        $.post( actionLink + 'cl=ddoewysiwygmedia_view&fnc=addFolder', { name: val, path: ui.currentPath },
                                                                                 function( _res )
                                                                                 {
                                                                                     ui.addMediaItem( _res.id, _res.file, _res.filetype, _res.filesize, null, _res.imagesize );
@@ -806,7 +806,7 @@
                                     {
                                         $.post(
                                             actionLink
-                                            + 'cl=ddoevisualcmsmedia&fnc=rename', {
+                                            + 'cl=ddoewysiwygmedia_view&fnc=rename', {
                                                 oldname: $_item.data( 'file' ),
                                                 newname: val, id: $_item.data( 'id' ),
                                                 filetype: $_item.data( 'filetype' ),

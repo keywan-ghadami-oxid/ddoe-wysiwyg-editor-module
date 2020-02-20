@@ -9,6 +9,7 @@ production:
   - "less:fontawesome"
   - "uglify:bootstrap"
   - "uglify:jquery"
+  - "uglify:jqueryui"
 
 default:
   - "production"

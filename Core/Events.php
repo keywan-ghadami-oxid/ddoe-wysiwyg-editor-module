@@ -68,7 +68,7 @@ class Events
     private static $__aUpdateSQLs = array(
         // todo: check version for next update
         '2.1.2' => array(
-            "ALTER TABLE  `ddmedia` ADD  `DDFOLDERID` CHAR( 32 ) NOT NULL DEFAULT '' AFTER `DDIMAGESIZE`"
+            "DDFOLDERID" => "ALTER TABLE  `ddmedia` ADD  `DDFOLDERID` CHAR( 32 ) NOT NULL DEFAULT '' AFTER `DDIMAGESIZE`"
         )
     );
 
@@ -182,8 +182,17 @@ class Events
         if (!$sInstalledVersion || version_compare($sInstalledVersion, $sCurrentVersion, '<')) {
             if (self::$__aUpdateSQLs) {
                 foreach (self::$__aUpdateSQLs as $sUpdateVersion => $aSQLs) {
-                    if (!$sInstalledVersion || version_compare($sUpdateVersion, $sInstalledVersion, '>')) {
-                        self::executeSQLs($aSQLs);
+                    if (!$sInstalledVersion || version_compare($sUpdateVersion, $sInstalledVersion, '>'))
+                    {
+                        $aUpdateSQLs = array();
+                        foreach( $aSQLs as $sField => $sSql )
+                        {
+                            if( !self::fieldExists( $sField, 'ddmedia' ) )
+                            {
+                                $aUpdateSQLs[] = $sSql;
+                            }
+                        }
+                        self::executeSQLs($aUpdateSQLs);
                     }
                 }
             }

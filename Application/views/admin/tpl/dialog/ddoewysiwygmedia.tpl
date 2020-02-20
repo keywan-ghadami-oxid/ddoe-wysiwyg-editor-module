@@ -88,6 +88,7 @@
                                         <div class="dd-media-item-preview">
                                             <div class="dd-media-item-centered">
                                                 <i class="dd-media-icon dd-media-icon-file fa fa-3x fa-file" style="display: none;"></i>
+                                                <i class="dd-media-icon dd-media-icon-folder fa fa-3x fa-folder" style="display: none"></i>
                                                 <img class="dd-media-thumb" data-dz-thumbnail />
                                                 <div class="dd-media-upload-progress">
                                                     <span data-dz-uploadprogress></span>

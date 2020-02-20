@@ -72,6 +72,14 @@ module.exports = {
                 "build/vendor/jquery/js/jquery-1.12.0.js"
             ]
         }
+    },
+
+    jqueryui: {
+        files: {
+            "out/src/js/jquery-ui.min.js": [
+                "build/vendor/jquery-ui/js/jquery-ui-1.11.4.js"
+            ]
+        }
     }
 
 };
