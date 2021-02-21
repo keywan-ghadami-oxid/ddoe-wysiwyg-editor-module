@@ -69,8 +69,8 @@ $.noConflict();
                                         [ 'height', [ 'height' ] ],
                                         [ 'table', [ 'table' ] ],
                                         [ 'insert', [ 'link', 'video', 'hr' ] ],
+                                        [ 'grid' ],
                                         [ 'misc', [ 'codeview' ] ]
-
                                     ],
 
                                     dialogsInBody: false,
